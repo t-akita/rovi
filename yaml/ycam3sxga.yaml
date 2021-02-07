@@ -12,18 +12,18 @@ pshift_genpc:
     image_height: 1024
     method3d: 0
     camera_type: 2
-    bw_diff: 16
+    bw_diff: 8
     brightness: 256
-    darkness: 32
+    darkness: 8
+    max_ph_diff: 1.0
+    max_parallax: 500
+    min_parallax: -400
+    ls_points: 3
+    pcgen_mode: 2
     phase_wd_min: 8
     phase_wd_thr: 3
     gcode_variation: 2
-    max_ph_diff: 1.0
-    max_parallax: 300
-    min_parallax: -200
-    ls_points: 3
-    interpolation: 0
-
+    calc_right_camera: Off
 live:
   camera:
     AcquisitionFrameRate: 30
@@ -98,10 +98,23 @@ genpc:
       interval: 1
 ycam:
   Mode: 1
-  Strobe: 0
-  SoftwareTriggerRate: 1
+  Strobe: 1
+  SoftwareTriggerRate: 3
   ExposureTimeLevel: 1
+  TemperatureMonitorInterval: 1
+  DrawCameraOrigin : Off
+  pcgen_publish: On
   camera:
     Gain: 0
   projector:
-    Intensity: 80
+    Intensity: 150
+  hdr:
+    enabled: Off
+    pcgen_publish: Off
+    projector:
+      Intensity: 0.2
+  nw_delay_monitor:
+    enabled: Off
+    interval: 10
+    timeout: 500
+    ignore_update_failure: Off

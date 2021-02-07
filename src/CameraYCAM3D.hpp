@@ -34,16 +34,16 @@ namespace camera{
 		//constexpr int PROJ_EXPOSURE_TIME_MIN      = aravis::ycam3d::PROJ_EXPOSURE_TIME_MIN;
 		//constexpr int PROJ_EXPOSURE_TIME_MAX      = aravis::ycam3d::PROJ_EXPOSURE_TIME_MAX;
 		
-		constexpr int PROJ_BRIGHTNESS_DEFAULT     = aravis::ycam3d::PROJ_BRIGHTNESS_DEFAULT;
-		constexpr int PROJ_BRIGHTNESS_MIN         = aravis::ycam3d::PROJ_BRIGHTNESS_MIN;
-		constexpr int PROJ_BRIGHTNESS_MAX         = aravis::ycam3d::PROJ_BRIGHTNESS_MAX;
+		constexpr int PROJ_INTENSITY_DEFAULT     = aravis::ycam3d::PROJ_INTENSITY_DEFAULT;
+		constexpr int PROJ_INTENSITY_MIN         = aravis::ycam3d::PROJ_INTENSITY_MIN;
+		constexpr int PROJ_INTENSITY_MAX         = aravis::ycam3d::PROJ_INTENSITY_MAX;
 		
-		constexpr int PROJ_FLASH_INTERVAL_DEFAULT = aravis::ycam3d::PROJ_FLASH_INTERVAL_DEFAULT;
-		constexpr int PROJ_FLASH_INTERVAL_MIN     = aravis::ycam3d::PROJ_FLASH_INTERVAL_MIN;
-		constexpr int PROJ_FLASH_INTERVAL_MAX     = aravis::ycam3d::PROJ_FLASH_INTERVAL_MAX;
+		//constexpr int PROJ_FLASH_INTERVAL_DEFAULT = aravis::ycam3d::PROJ_FLASH_INTERVAL_DEFAULT;
+		//constexpr int PROJ_FLASH_INTERVAL_MIN     = aravis::ycam3d::PROJ_FLASH_INTERVAL_MIN;
+		//constexpr int PROJ_FLASH_INTERVAL_MAX     = aravis::ycam3d::PROJ_FLASH_INTERVAL_MAX;
 		
 		
-		constexpr int PATTERN_CAPTURE_NUM = aravis::ycam3d::PATTERN_CAPTURE_NUM;
+		//constexpr int PATTERN_CAPTURE_NUM = aravis::ycam3d::PATTERN_CAPTURE_NUM;
 		
 		struct CameraImage {
 			bool result =false;
@@ -139,23 +139,85 @@ namespace camera{
 				return diff;
 			}
 		};
+		
+		struct CaptureParameter{
+			int expsr_lv = -1;
+			int gain = -1;
+			int proj_intensity = -1;
+			
+			virtual std::string to_string()const{
+				std::stringstream ss;
+				ss << "expsr_lv=" << expsr_lv;
+				ss << ",gain=" << gain;
+				ss << ",proj_intensity=" << proj_intensity;
+				return ss.str();
+			}
+			
+			virtual bool operator!=(const CaptureParameter &param)const{
+				return ! (*this==param);
+			}
+			
+			virtual bool operator==(const CaptureParameter &param)const{
+				if( this->expsr_lv != param.expsr_lv || 
+				    this->gain != param.gain || 
+				    this->proj_intensity != param.proj_intensity ){
+					return false;
+				}
+				return true;
+			}
+			bool is_different(const CaptureParameter &param){
+				
+				bool ret=false;
+				if(param.expsr_lv < 0 ){
+					//skipped
+				}else if( this->expsr_lv < 0){
+					ret=true;
+				}else if( this->expsr_lv != param.expsr_lv ){
+					ret=true;
+				}
+				
+				if(param.gain < 0 ){
+					//skipped
+				}else if( this->gain < 0){
+					ret=true;
+				}else if( this->gain != param.gain ){
+					ret=true;
+				}
+				
+				if(param.proj_intensity < 0 ){
+					//skipped
+				}else if( this->proj_intensity < 0){
+					ret=true;
+				}else if( this->proj_intensity != param.proj_intensity ){
+					ret=true;
+				}
+				return ret;
+			}
+		};
+		
+		extern const int YCAM3D_RESET_INTERVAL;
+		extern const int YCAM3D_RESET_AFTER_WAIT;
+		
+		void start_ycam3d_reset(const char *ipaddr);
+		bool reset_ycam3d(const char *ipaddr);
+		
 		using f_camera_open_finished = std::function<void(const bool result)>;
 		using f_camera_disconnect = std::function<void(void)>;
 		using f_camera_closed = std::function<void(void)>;
-		using f_pattern_img_received = std::function<void(const bool result,const int elapsed, const std::vector<camera::ycam3d::CameraImage> &imgs_l,const std::vector<camera::ycam3d::CameraImage> &imgs_r,const bool timeout)>;
-		//using f_capture_img_received = std::function<void(const bool result,const int elapsed, camera::ycam3d::CameraImage &img_l,const camera::ycam3d::CameraImage &img_r,const bool timeout)>;
-
+		using f_pattern_img_received = std::function<void(const bool result,const int elapsed, const std::vector<camera::ycam3d::CameraImage> &imgs_l,const std::vector<camera::ycam3d::CameraImage> &imgs_r,const bool timeout,const int expsrLv)>;
+		using f_capture_img_received = std::function<void(const bool result,const int elapsed, camera::ycam3d::CameraImage &img_l,const camera::ycam3d::CameraImage &img_r,const bool timeout,const int expsrLv)>;
+		using f_network_delayed = std::function<void(void)>;
+		using f_auto_con_limit_exceeded=std::function<void(void)>;
+		using f_ros_error_published=std::function<void(std::string)>;
 	}
 }
-
-
 
 class CameraYCAM3D {
 protected:
 	
 	enum CaptureStatus {
 		CaptStat_Ready,
-		//CaptStat_Single, //îpé~
+		CaptStat_Single,
 		CaptStat_Pattern
 	};
 	
@@ -186,6 +248,8 @@ private:
 	
 	std::timed_mutex m_auto_connect_mutex;
 	
+	std::string m_auto_connect_ipaddr;
+	
 	CameraImageReceivedCallback m_on_image_received;
 	CameraDisconnectCallbck m_on_disconnect;
 	
@@ -193,13 +257,19 @@ private:
 	int m_trigger_timeout_period;
 	std::thread m_capture_thread;
 	
+	int m_pre_heart_beat_val;
+	bool m_cancel_delay_mon;
+	std::thread m_delay_mon;
+	
 	camera::ycam3d::f_camera_open_finished m_callback_cam_open_finished;
 	camera::ycam3d::f_camera_closed m_callback_cam_closed;
-	//camera::ycam3d::f_capture_img_received m_callback_capt_img_recv;
-	camera::ycam3d::f_pattern_img_received m_callback_capt_img_recv;
+	camera::ycam3d::f_capture_img_received m_callback_capt_img_recv;
 	camera::ycam3d::f_pattern_img_received m_callback_trig_img_recv;
+	camera::ycam3d::f_network_delayed m_callback_nw_delayed;
+	camera::ycam3d::f_auto_con_limit_exceeded m_callback_auto_lm_excd;
+	camera::ycam3d::f_ros_error_published m_ros_err_pub;
 	
-	bool reset_image_buffer();
+	bool reset_image_buffer(const int capt_num);
 	
 	bool get_camera_param_int(const std::string &label,std::function<bool(int*)> func,int *val);
 	bool set_camera_param_int(const std::string &label,std::function<bool(int)> func,const int val);
@@ -216,7 +286,7 @@ protected:
 	std::vector<camera::ycam3d::CameraImage> m_imgs_right;
 	std::vector<bool> m_img_recv_flags;
 	
-	
+
 public:
 	CameraYCAM3D();
 	virtual ~CameraYCAM3D();
@@ -238,17 +308,19 @@ public:
 	
 	void set_trigger_timeout_period(const int timeout);
 	
-	bool capture();
+	bool capture(const bool strobe);
 	
-	bool capture_strobe();
+	//bool capture_strobe();
 	
-	bool capture_pattern();
+	bool capture_pattern(const bool multi,const bool ptnCangeWaitShort);
 	
-	void start_auto_connect();
+	void start_auto_connect(const std::string ipaddr="");
 	
 	bool get_exposure_time_level_default(int *val)const;
+	
 	bool get_exposure_time_level_min(int *val)const;
 	bool get_exposure_time_level_max(int *val)const;
+	
 	bool get_exposure_time_level(int *val);
 	bool set_exposure_time_level(const int val);
 	
@@ -264,20 +336,31 @@ public:
 	bool get_projector_exposure_time(int *val);
 	//bool set_projector_exposure_time(const int val);
 	
-	bool get_projector_brightness(int *val);
-	bool set_projector_brightness(const int val);
+	bool get_projector_intensity(int *val);
+	bool set_projector_intensity(const int val);
 	
 	//bool get_projector_interval(int *val);
 	//bool set_projector_interval(const int val);
-
+	//void ser_projector_pattern(int val);
+	
+	void set_callback_ros_error_published(camera::ycam3d::f_ros_error_published callback);
+	void set_callback_auto_con_limit_exceeded(camera::ycam3d::f_auto_con_limit_exceeded callback);
+	
+	bool get_temperature(int *val);
+	
+	bool get_capture_param(camera::ycam3d::CaptureParameter *capt_param);
+	bool update_capture_param(const camera::ycam3d::CaptureParameter &capt_param);
+	
+	void start_nw_delay_monitor_task(const int sec,const int timeout,camera::ycam3d::f_network_delayed callback,const bool ignUpdFail);
+	void stop_nw_delay_monitor_task();
+	
 	void set_callback_camera_open_finished(camera::ycam3d::f_camera_open_finished callback);
 	
 	void set_callback_camera_disconnect(camera::ycam3d::f_camera_disconnect callback);
 	
 	void set_callback_camera_closed(camera::ycam3d::f_camera_closed callback);
 	
-	//void set_callback_capture_img_received(camera::ycam3d::f_capture_img_received callback);
-	void set_callback_capture_img_received(camera::ycam3d::f_pattern_img_received callback);
-
+	void set_callback_capture_img_received(camera::ycam3d::f_capture_img_received callback);
+	
 	void set_callback_pattern_img_received(camera::ycam3d::f_pattern_img_received callback);
 };

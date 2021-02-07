@@ -39,6 +39,23 @@ public:
 	virtual bool create_camera(const char *dirname) = 0;
 
 	/**
+	  カメラがHMatから構築されたか否かを返します.座標系変換済みのHMatからステレオカメラを構築している可能性があるため
+	 */
+	const bool is_camera_from_hmat() const {
+		return (this->camtype == CamParamType::HMat) ? true : false;
+	}
+
+	/**
+	  点群の座標変換行列をファイルから読み込みます.
+	  @return 読み込みに成功した場合はtrue, 失敗した場合はfalse.
+	  @param [in] filename 座標変換行列が記述されているファイル名
+	 */
+	bool convert_coordinate(const char *filename) {
+		if (!pcgen) return false;
+		return pcgen->convert_coordinate(filename);
+	}
+
+	/**
 	  点群生成器に渡すファイルのフルパスのリストを作成します.
 	  @return 作成されたリスト
 	  @param [in] dirname 画像が格納されているディレクトリ名
@@ -49,26 +66,9 @@ public:
 	virtual std::vector<std::string> create_filelist(const char *dirname, const char *file_ptn) = 0;
 
 	/**
-	  経過時間を表示します.
-	  @return なし
+	 * 点群生成器に残っているデータをクリアします.点群生成前に一回必ず呼び出してください.
 	 */
-	virtual void print_elapsed() {}
-
-public:
-	/**
-	  点群の座標変換行列をファイルから読み込みます.
-	 */
-	bool convert_coordinate(const char *filename) {
-		if (!pcgen) return false;
-		return pcgen->convert_coordinate(filename);
-	}
-
-	/**
-	  カメラがHMatから構築されたか否かを返します.座標系変換済みのHMatからステレオカメラを構築している可能性があるため
-	 */
-	const bool is_camera_from_hmat() const {
-		return (this->camtype == CamParamType::HMat) ? true : false;
-	}
+	bool reset();
 
 	/**
 	  ファイルから画像を読み込んで点群生成器に渡します.
@@ -83,57 +83,48 @@ public:
 	  @param [in] buffers 画像左上端アドレスが格納されているvector
 	 */
 	bool set_images(std::vector<unsigned char*> &buffers);
-	
 
 	/**
-	  点群を生成します.
-	  @return 処理が成功したか否か
-	  @param [in] is_interpo 点群補間を行うか否か
+	  経過時間を表示します.
+	  @return なし
 	 */
-	bool execute(const bool is_interpo);
+	virtual void print_elapsed() {}
 
+public:
+	/**
+	 * 3Dマッチングを行う前に必要な前処理を行います.
+	 * @return 処理が成功した場合はtrue, 失敗した場合はfalse.
+	 */
+	bool preprocess();
+
+	/**
+	  視差を求め、点群を生成します.
+	  @return 処理が成功したか否か
+	  @param [in] texture_cam 点群に張り付けるテクスチャをどちらのカメラからの画像を使用するか(0: 左(従来通り), 1: 右)
+	 */
+	bool execute(const int texture_cam);
 	
 	/**
 	   点群を保存します.
 	   @return 作成された点の数
+	   @param [in] callback 点群生成後に呼び出されるコールバック関数
 	 */
 	int save_pointcloud(PointCloudCallback *callback) {
 		return pcgen->get_pointcloud(callback);
 	}
-	
 
-	// 下２つは一回呼び出せば点群保存まで実行する簡単(?)まとめ関数
-	// callbackを複数呼び出す場合は、this->execute()までを複数回実行する必要はないです
-	
+	// 下はexecuteとsave_pointcloudをまとめて行う関数
+	// generate_pointcloud呼び出しの前に必ずload_images or set_imagesにて画像をpcgenに
+	// 与え、preprocess()を呼び出しておかなければならない.
+
 	/**
 	  画像ファイルから画像を読み込んで点群生成を行います.
 	  @return 作成された点の数
-	  @param [in] filenames 画像ファイルパス(点群生成に必要な枚数だけが格納されているようにしてください)
-	  @param [in] is_interpo 補間を行うか否か
+	  @param [in] texture_cam 点群に張り付けるテクスチャをどちらのカメラからの画像を使用するか(0: 左(従来通り), 1: 右)
 	  @param [in] callback 点群生成後に呼び出されるコールバック関数
-	  @note filenames.size()で画像が連結されているか、そうでないかを判定します.
 	 */
-	int generate_pointcloud(std::vector<std::string> filenames, const bool is_interpo, PointCloudCallback *callback) {
-		if (!load_images(filenames)) return false;
-		if (!this->execute(is_interpo)) return false;
-		return this->save_pointcloud(callback);
-	}
-
-	/**
-	  画像バッファから画像を取り出して点群生成を行います.
-	  @return 作成された点の数
-	  @param [in] buffers 画像左上端アドレスが枚数分格納されているベクタ
-	  @param [in] is_interpo 補間を行うか否か
-	  @param [in] callback 点群生成後に呼び出されるコールバック関数
-	  @note 画像はカメラから取り込んだままのものを渡してください.(レクティファイしないで下さい)
-	  @note 画像バッファの水平方向のバイト数は入力画像横幅と同じにしてください.
-	  @note 左右分離画像を渡す場合は、左0, 右0, 左1, 右1, ... の順になるよう並べておいてください.
-	  @note 左右連結画像は左側に左カメラ画像、右側に右カメラ画像となるように連結されていることを想定しています.
-	  @note buffers.size()で画像が連結されているか、そうでないかを判定します.
-	 */
-	int generate_pointcloud_raw(std::vector<unsigned char*> &buffers, const bool is_interpo, PointCloudCallback *callback) {
-		if (!set_images(buffers)) return false;
-		if (!this->execute(is_interpo)) return false;
+	int generate_pointcloud(const int texture_cam, PointCloudCallback *callback) {
+		if (!this->execute(texture_cam)) return false;
 		return this->save_pointcloud(callback);
 	}
 
@@ -149,7 +140,6 @@ protected:
 	  @return リマップ後の画像縦幅
 	 */
 	const int get_image_rows(void) const { return settings.output_rows; }
-
 
 	/**
 	  カメラ画像の横幅を設定します
@@ -177,7 +167,6 @@ protected:
 		settings.output_rows = rows;
 	}
 
-
 protected:
 	/// カメラタイプ
 	CamParamType camtype;
@@ -194,8 +183,17 @@ protected:
 	/// 点群計算方法
 	iPointCloudGenerator::Method3D method3d;
 
-	std::chrono::system_clock::duration elapsed_disparity;	///< 視差計算にかかった時間
+	std::chrono::system_clock::duration elapsed_phsdecode;	///< 位相復号
+	std::chrono::system_clock::duration elapsed_preprocess;	///< 前処理にかかった時間(位相接続チェック＆レクティファイ)
+	std::chrono::system_clock::duration elapsed_makedisp;	///< 視差計算にかかった時間
 	std::chrono::system_clock::duration elapsed_genpcloud;	///< 点群計算にかかった時間
+
+	void time_start() { time_beg = std::chrono::system_clock::now(); }
+	std::chrono::system_clock::duration get_elapsed() { 
+		std::chrono::system_clock::time_point time_end = std::chrono::system_clock::now();	
+		return std::chrono::duration_cast<std::chrono::microseconds>(time_end - time_beg);
+	}
+	std::chrono::system_clock::time_point time_beg;
 };
 
 

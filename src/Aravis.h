@@ -15,7 +15,7 @@ namespace ycam3d{
 	constexpr int CAM_EXPOSURE_TIME_MIN       = 1000;
 	
 	constexpr int CAM_DIGITAL_GAIN_DEFAULT   = 0;
-	constexpr int CAM_DIGITAL_GAIN_MAX       = 255;
+	constexpr int CAM_DIGITAL_GAIN_MAX       = 100;
 	constexpr int CAM_DIGITAL_GAIN_MIN       = 0;
 	
 	constexpr int CAM_ANALOG_GAIN_DEFAULT   = 0;
@@ -26,15 +26,15 @@ namespace ycam3d{
 	constexpr int PROJ_EXPOSURE_TIME_MIN     = 0;      //?
 	constexpr int PROJ_EXPOSURE_TIME_MAX     = 9999999;//?
 	
-	constexpr int PROJ_BRIGHTNESS_DEFAULT = 100;   //?
-	constexpr int PROJ_BRIGHTNESS_MIN     = 0;     //?
-	constexpr int PROJ_BRIGHTNESS_MAX     = 9999;  //?
+	constexpr int PROJ_INTENSITY_DEFAULT = 100;
+	constexpr int PROJ_INTENSITY_MIN     = 0;
+	constexpr int PROJ_INTENSITY_MAX     = 255;
 	
 	constexpr int PROJ_FLASH_INTERVAL_DEFAULT = 10;
-	constexpr int PROJ_FLASH_INTERVAL_MIN = 0;  //?
-	constexpr int PROJ_FLASH_INTERVAL_MAX = 999;//?
+	//constexpr int PROJ_FLASH_INTERVAL_MIN = 0;  //?
+	//constexpr int PROJ_FLASH_INTERVAL_MAX = 255;//?
 	
-	constexpr int PATTERN_CAPTURE_NUM  = PHSFT_CAP_NUM;
+	//constexpr int PATTERN_CAPTURE_NUM  = PHSFT_CAP_NUM;
 	
 	struct ExposureTimeLevelSetting {
 		const int min_lv;
@@ -120,14 +120,20 @@ class Aravis
 	char name_[64];
 	int64_t packet_delay_;
 	uint16_t version_;
-	YCAM_TRIG trigger_mode_;
 	
-	
+	//2020/11/09 comment by hato -------------------- start --------------------
+	//YCAM_TRIG trigger_mode_;
+	//2020/11/09 comment by hato --------------------  end  --------------------
+		
 	//2020/09/16 add by hato -------------------- start --------------------
-	const aravis::ycam3d::ExposureTimeLevelSetting *m_expsr_tm_lv_setting;
+	const aravis::ycam3d::ExposureTimeLevelSetting *m_expsr_tm_lv_setting_;
 	int m_expsr_tm_lv;
 	//2020/09/16 add by hato --------------------  end  --------------------
-
+	
+	//2020/11/05 add by hato -------------------- start --------------------
+	YCAM_PROJ_PTN cur_proj_ptn_;
+	//2020/11/05 add by hato --------------------  end  --------------------
+	
 	//Aravis control
 	static void on_new_buffer(ArvStream *stream, void *arg);
 	static void on_control_lost(ArvGvDevice *gv_device, void *arg);
@@ -140,6 +146,7 @@ class Aravis
 	int projector_value(const char *key_str, std::string *str = 0);	//診断メッセージから値を取得
 	bool projector_wait();
 	//2020/09/25 add by hato -------------------- start --------------------
+	bool uart_cmd(const char *cmd,const int sleep_ms = 0);
 	bool uart_cmd(const char command,const int val,const int slee_ms = 0);
 	bool uart_cmd(const char command,const char *val,const int slee_ms = 0);
 	std::string uart_read();
@@ -160,7 +167,24 @@ class Aravis
 	OnRecvImage *on_image_;
 	uint8_t *out_;
 	OnLostCamera *on_lost_;
-
+	
+	//2020/11/05 modified by hato -------------------- start --------------------
+	enum ProjectorEnabled{
+		Proj_Disabled = 0,
+		Proj_Enabled = 2
+	};
+	//ProjectorEnabled cur_proj_enabled_;
+	int cur_proj_intensity_;
+	
+	int pset_validate(void);
+	void pset_stopgo(ProjectorEnabled n,const bool shortWait=false);
+	//2020/11/05 modified by hato --------------------  end  --------------------
+	
+	//2020/11/26 moved by hato -------------------- start --------------------
+	bool setProjectorExposureTime(int value);
+	int projectorExposureTime();
+	//2020/11/26 moved by hato --------------------  end  --------------------
+	
 public:
 	Aravis(YCAM_RES res = YCAM_RES_SXGA, int ncam = 1);
 	~Aravis();
@@ -180,7 +204,6 @@ public:
 	int  bytesPerPixel(){payload_ / (width_ * height_);}
 	int cameraNo()const { return camno_; }
 	
-	
 	//2020/09/16 add by hato -------------------- start --------------------
 	bool get_exposure_time_level(int *val)const;
 	bool get_exposure_time_level_default(int *val)const;
@@ -188,36 +211,75 @@ public:
 	bool get_exposure_time_level_max(int *val)const;
 	bool set_exposure_time_level(const int val);
 	//2020/09/16 add by hato --------------------  end  --------------------
-	
-	//
+		
 	int exposureTime();
 	int gainA();
 	int gainD();
-	bool setExposureTime(int value);
+	
+	//2021/01/26 add by hato -------------------- start --------------------
+	int getHeartBeatTimeout();
+	bool setHeartBeatTimeout(const int val);
+	//2021/01/26 add by hato --------------------  end  --------------------
+	
+	//2020/11/09 comment by hato -------------------- start --------------------
+	//bool setExposureTime(int value);
+	//2020/11/09 comment by hato --------------------  end  --------------------
 	bool setGainA(int value);
 	bool setGainD(int value);
 	//
 	bool isLost(){return lost_;}
 	bool isAsync(){ return (VER_ACAP <= version_); }
-	//
-	YCAM_TRIG triggerMode(){ return trigger_mode_; }
-	bool setTriggerMode(YCAM_TRIG tm);
+	
+	//2020/11/09 comment by hato -------------------- start --------------------
+	//YCAM_TRIG triggerMode(){ return trigger_mode_; }
+	//bool setTriggerMode(YCAM_TRIG tm);
+	//2020/11/09 comment by hato --------------------  end  --------------------
+	
 	//2020/10/09 modified by hato -------------------- start --------------------
 	//bool trigger(YCAM_PROJ_MODE mode);
-	bool trigger(YCAM_PROJ_MODE mode,const  bool projectorOn=true);
+	bool trigger(YCAM_PROJ_MODE mode);
 	//2020/10/09 modified by hato --------------------  end  --------------------
 	//
-	bool setProjectorPattern(YCAM_PROJ_PTN ptn);
+	
+	//2020/11/06 add by hato -------------------- start --------------------
+	int getCaptureNum()const;
+	//2020/11/06 add by hato --------------------  end  --------------------
+	
+	YCAM_PROJ_PTN getProjectorPattern() const{
+		return cur_proj_ptn_;
+	}
+	
+	//2020/11/30 modified by hato -------------------- start --------------------
+	bool setProjectorPattern(YCAM_PROJ_PTN ptn,const bool shortWait);
+	//2020/11/30 modified by hato --------------------  end  --------------------
 
-	bool setProjectorBrightness(int value);
-	int projectorBrightness();
+	bool setProjectorIntensity(int value);
+	//2020/11/05 modified by hato -------------------- start --------------------
+	//int projectorIntensity();
+	int projectorIntensity()const {
+		return cur_proj_intensity_;
+	}
+	//2020/11/05 modified by hato --------------------  end --------------------
 
-	bool setProjectorExposureTime(int value);
-	int projectorExposureTime();
+	//2020/11/26 moved by hato -------------------- start --------------------
+	//bool setProjectorExposureTime(int value);
+	//int projectorExposureTime();
+	//2020/11/26 moved by hato --------------------  end  --------------------
 
 	bool setProjectorFlashInterval(int value);
 	int projectorFlashInterval();
-
+	
+	//2020/11/05 modified by hato -------------------- start --------------------
+	//bool isProjectorEnabled()const{
+	//	return cur_proj_enabled_== Proj_Enabled;
+	//}
+	//bool setProjectorEnabled(const bool enabled);
+	//2020/11/05 modified by hato --------------------  end  --------------------
+	
+	//2020/11/10 add by hato -------------------- start --------------------
+	int getTemperature();
+	//2020/11/10 add by hato --------------------  end  --------------------
+	
 	//utilities
 	std::string uart_dump();
 	bool upload_camparam(YCAM_RES reso, YCAM_SIDE side, const char *yaml_path);
