@@ -52,7 +52,7 @@ ros::Publisher pub_rects[2];
 ros::Publisher pub_rects0[2];
 ros::Publisher pub_rects1[2];
 ros::Publisher pub_diffs[2];
-ros::Publisher pub_views[2];
+//ros::Publisher pub_views[2];
 ros::Publisher pub_temperature;
 
 ros::ServiceClient svc_genpc;
@@ -84,6 +84,8 @@ const std::string PRM_NW_DELAY_MON_ENABLED       = "ycam/nw_delay_monitor/enable
 const std::string PRM_NW_DELAY_MON_INTERVAL      = "ycam/nw_delay_monitor/interval";
 const std::string PRM_NW_DELAY_MON_TIMEOUT       = "ycam/nw_delay_monitor/timeout";
 const std::string PRM_NW_DELAY_MON_IGN_UPD_FAIL  = "ycam/nw_delay_monitor/ignore_update_failure";
+
+const std::string PRM_CAPT_TIMEOUT_RESET         = "ycam/CaptureTimeoutReset";
 
 const std::string PRM_CAM_CALIB_MAT_K_LIST[]  = {"left/remap/Kn","right/remap/Kn"};
 
@@ -646,8 +648,8 @@ sensor_msgs::Image drawCameraOriginCross(sensor_msgs::Image &inputImg,cv::Point 
 	const int cx = posCross.x;//width /2;
 	const int cy = posCross.y;//height/2;
 	
-	cv::line(colorImg.image, cv::Point(cx - cross_len/2  , cy) , cv::Point(cx + cross_len/2, cy), cv::Scalar(255,0,0),cross_width , CV_AA);
-	cv::line(colorImg.image, cv::Point(cx, cy - cross_len/2),    cv::Point(cx, cy + cross_len/2)   , cv::Scalar(255,0,0),cross_width , CV_AA);
+	cv::line(colorImg.image, cv::Point(cx - cross_len/2  , cy) , cv::Point(cx + cross_len/2, cy), cv::Scalar(255,0,0),cross_width , cv::LINE_AA);
+	cv::line(colorImg.image, cv::Point(cx, cy - cross_len/2),    cv::Point(cx, cy + cross_len/2)   , cv::Scalar(255,0,0),cross_width , cv::LINE_AA);
 	
 	sensor_msgs::Image outputImg;
 	outputImg=*colorImg.toImageMsg();
@@ -669,7 +671,13 @@ void on_capture_image_received(const bool result,const int elapsed, camera::ycam
 	ROS_INFO(LOG_HEADER"capture image recevie start. result=%s, timeout=%d img_l: result=%d size=%d x %d, img_r: result=%d size=%d x %d",
 		(result?"OK":"NG"), timeout, img_l.result, img_l.width, img_l.height, img_r.result, img_r.width, img_r.height);
 #endif
-	
+	if( timeout ){
+		ROS_ERROR(LOG_HEADER"error:capture timeout occurred.");
+		if(get_param<bool>(PRM_CAPT_TIMEOUT_RESET,false) ){
+			ROS_WARN(LOG_HEADER"reset ycam3d.");
+			g_node_exit_flg = 1;
+		}
+	}
 	if( ! result ){
 		ROS_ERROR(LOG_HEADER"error:capture failed.");
 		return;
@@ -801,9 +809,7 @@ void on_pattern_image_received(const bool result,const int proc_tm,const std::ve
 		//ptn_imgs_r = imgs_r;
 		ptn_imgs.push_back({imgs_l,imgs_r});
 	}
-	if( timeout ){
-		publish_string(pub_error,"Image streaming timeout");
-	}
+
 	//ROS_INFO(LOG_HEADER"elapsed tm=%d",tmr.elapsed_ms());
 	
 	ptn_capt_wait_cv.notify_one();
@@ -811,6 +817,15 @@ void on_pattern_image_received(const bool result,const int proc_tm,const std::ve
 #ifdef DEBUG_DETAIL
 	ROS_INFO(LOG_HEADER"on pattern image recevied. finshed,proc_tm=%d ms",tmr.elapsed_ms());
 #endif
+	
+	if( timeout ){
+		ROS_ERROR(LOG_HEADER"error:capture timeout occurred.");
+		publish_string(pub_error,"Image streaming timeout");
+		if( get_param<bool>(PRM_CAPT_TIMEOUT_RESET,false) ){
+			ROS_WARN(LOG_HEADER"reset ycam3d.");
+			g_node_exit_flg = 1;
+		}
+	}
 }
 
 bool validate_patten_image_data(const PatternImageData &ptnImgData){
@@ -954,7 +969,7 @@ bool exec_point_cloud_generation(std_srvs::TriggerRequest &req, std_srvs::Trigge
 						ros_ptn_imgs_l[i] = img_l;
 						genpc_msg.request.imgL.push_back(img_l);
 						
-						ros_ptn_imgs_r[i] = img_l;
+						ros_ptn_imgs_r[i] = img_r;
 						genpc_msg.request.imgR.push_back(img_r);
 						
 #ifdef DEBUG_PTN_IMG_SAVE
@@ -1020,7 +1035,7 @@ bool exec_point_cloud_generation(std_srvs::TriggerRequest &req, std_srvs::Trigge
 				ElapsedTimer tmr_pcgen_publish;
 				
 				ROS_INFO(LOG_HEADER"<%d> pcgen publish start.",n);
-				//画像を配信するよ
+				//画像配信
 				for( int camno = 0 ; camno < 2 ; ++camno ){
 					pub_img_raws[camno].publish(ros_imgs[camno][1]);
 					sensor_msgs::Image remap_ros_img_ptn_0;
@@ -1033,12 +1048,14 @@ bool exec_point_cloud_generation(std_srvs::TriggerRequest &req, std_srvs::Trigge
 							remap_ros_img_ptn_0 = remap_img_filter.response.img;
 						}
 						pub_rects0[camno].publish(remap_ros_img_ptn_0);
+						pub_rects[camno].publish(remap_ros_img_ptn_0);
 					}
 					
 					sensor_msgs::Image remap_ros_img_ptn_1;
 					{
 						rovi::ImageFilter remap_img_filter;
 						remap_img_filter.request.img = ros_imgs[camno][1];
+						
 						if( ! svc_remap[camno].call(remap_img_filter) ){
 							ROS_ERROR(LOG_HEADER"<%d> error:camera image remap failed. camno=%d, ptn=1",n,camno);
 						}else{
@@ -1185,13 +1202,13 @@ int main(int argc, char **argv)
 	pub_rects0[0] = n.advertise<sensor_msgs::Image>("left/image_rect0", 1);
 	pub_rects1[0] = n.advertise<sensor_msgs::Image>("left/image_rect1", 1);
 	pub_diffs[0] = n.advertise<sensor_msgs::Image>("left/diff_rect", 1);
-	pub_views[0] = n.advertise<sensor_msgs::Image>("left/view",1);
+	//pub_views[0] = n.advertise<sensor_msgs::Image>("left/view",1);
 	
 	pub_rects[1] = n.advertise<sensor_msgs::Image>("right/image_rect", 1);
 	pub_rects0[1] = n.advertise<sensor_msgs::Image>("right/image_rect0", 1);
 	pub_rects1[1] = n.advertise<sensor_msgs::Image>("right/image_rect1", 1);
 	pub_diffs[1] = n.advertise<sensor_msgs::Image>("right/diff_rect", 1);
-	pub_views[1] = n.advertise<sensor_msgs::Image>("right/view",1);
+	//pub_views[1] = n.advertise<sensor_msgs::Image>("right/view",1);
 	
 	pub_temperature = n.advertise<std_msgs::Float32>("ycam/temperature",1);
 	
@@ -1213,10 +1230,10 @@ int main(int argc, char **argv)
 	temp_mon_timer = n.createTimer(ros::Duration(TEMP_MON_INTERVAL_DEFAULT), get_ycam_temperature_task);
 	temp_mon_timer.stop();
 
-	camera_ptr->set_callback_ros_error_published([&](const std::string message){
+	camera_ptr->set_callback_ros_error_published([](const std::string message){
 		publish_string(pub_error,message);
 	});
-	camera_ptr->set_callback_auto_con_limit_exceeded([&](){
+	camera_ptr->set_callback_auto_con_limit_exceeded([](){
 		publish_string(pub_error,"camera auto connect limit exceeded.");
 		g_node_exit_flg = 1;
 	});
@@ -1228,7 +1245,7 @@ int main(int argc, char **argv)
 		const int delayMonTimeout= get_param<int>(PRM_NW_DELAY_MON_TIMEOUT,500);
 		const bool delayMonIgnUpdFail = get_param<bool>(PRM_NW_DELAY_MON_IGN_UPD_FAIL,false);
 		ROS_INFO("delay monistor start. interval=%d",delayMonInterval);
-		camera_ptr->start_nw_delay_monitor_task(delayMonInterval,delayMonTimeout,[&](){
+		camera_ptr->start_nw_delay_monitor_task(delayMonInterval,delayMonTimeout,[](){
 			ROS_ERROR(LOG_HEADER"network delay occurred !!!");
 			publish_string(pub_error,"network delay occurred.");
 			g_node_exit_flg = 1;
