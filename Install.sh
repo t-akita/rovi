@@ -56,14 +56,14 @@ npm install ping
 sudo apt install -y python3-pip
 #pip install pip==9.0.3
 #pip install numpy==1.15.0 --user
-pip3 install numpy --user
-pip3 install scipy --user
-pip3 install wheel --user
+pip3 install numpy
+pip3 install scipy
+pip3 install wheel
 #pip install ipython==5.7 --user
-pip3 install ipython --user
+pip3 install ipython
 #pip install ipykernel==4.10 --user
-pip3 install ipykernel --user
-pip3 install open3d-python --user
+pip3 install ipykernel
+pip3 install open3d==0.11.1
 
 #installing X-Tile
 #cd ~
@@ -84,7 +84,7 @@ git clone -b noetic-devel https://github.com/YOODS/rovi_utils.git
 cd $CATKIN_WS/src
 git clone -b noetic-devel https://github.com/YOODS/rtk_tools.git
 sudo apt install python-tk
-pip3 install tkfilebrowser --user
+pip3 install tkfilebrowser
 
 
 sudo ln -s /usr/bin/python3 /usr/bin/python
